@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WERP Recon Terminal</title>
+<style>
+body {
+margin:0;
+background:black;
+color:#00ff9f;
+font-family: monospace;
+overflow:hidden;
+}
+
+.logo {
+text-shadow: 0 0 15px #00ff9f;
+}
+
+#boot, #terminal {
+padding:20px;
+}
+
+#terminal {
+display:none;
+}
+
+#bootlog {
+margin-top:10px;
+white-space:pre-line;
+}
+
+input {
+background:transparent;
+border:none;
+color:#00ff9f;
+outline:none;
+font-size:16px;
+}
+
+.line {
+display:flex;
+gap:8px;
+align-items:center;
+}
+
+.cursor {
+width:10px;
+height:16px;
+background:#00ff9f;
+display:inline-block;
+animation:blink 1s infinite;
+}
+
+@keyframes blink {
+50% { opacity:0; }
+}
+
+/* subtle scanlines */
+body::after {
+content:"";
+position:absolute;
+top:0;left:0;
+width:100%;height:100%;
+background: repeating-linear-gradient(
+0deg,
+rgba(0,255,159,0.03),
+rgba(0,255,159,0.03) 1px,
+transparent 1px,
+transparent 3px
+);
+pointer-events:none;
+}
+body {
+transition: background 0.4s ease, color 0.4s ease;
+}
+#asciiInput {
+font-size: 10px;
+opacity: 0.35;
+line-height: 10px;
+margin: 0;
+text-shadow: 0 0 10px #00ff9f;
+}
+
+#inputWrap {
+display: flex;
+flex-direction: column;
+gap: 5px;
+}
+</style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+</head>
+
+<body>
+
+<div id="boot">
+<pre class="logo">
+██╗    ██╗███████╗██████╗ ██████╗
+██║    ██║██╔════╝██╔══██╗██╔══██╗
+██║ █╗ ██║█████╗  ██████╔╝██████╔╝
+██║███╗██║██╔══╝  ██╔══██╗██╔═══╝
+╚███╔███╔╝███████╗██║  ██║██║
+ ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚═╝
+
+.WERP RECON TERMINAL v4.0
+</pre>
+
+<div id="bootlog"></div>
+</div>
+
+<div id="terminal">
+<div id="output"></div>
+
+<p class="line">
+<span>.WERP></span>
+<span class="cursor"></span>
+<input id="cmd" autocomplete="off"/>
+</p>
+</div>
+
+<script>
+const boot = document.getElementById("boot");
+const terminal = document.getElementById("terminal");
+const cmd = document.getElementById("cmd");
+const output = document.getElementById("output");
+const bootlog = document.getElementById("bootlog");
+
+let history = [];
+let historyIndex = -1;
+
+/* ---------------- BOOT ---------------- */
+
+const lines = [
+"Booting WERP kernel...",
+"Connecting to public data layer...",
+"Loading fetch engine...",
+"Mounting recon interface...",
+"READY."
+];
+
+let i = 0;
+
+function bootSequence(){
+if(i < lines.length){
+bootlog.textContent += lines[i] + "\n";
+i++;
+setTimeout(bootSequence, 300);
+} else {
+setTimeout(() => {
+boot.style.display = "none";
+terminal.style.display = "block";
+cmd.focus();
+}, 400);
+}
+}
+
+bootSequence();
+
+/* ---------------- OUTPUT ---------------- */
+
+function add(text){
+const div = document.createElement("div");
+div.textContent = text;
+output.appendChild(div);
+}
+
+/* ---------------- REAL IP LOOKUP ---------------- */
+
+async function ipinfo(ip){
+add("Tracing IP: " + ip);
+
+try {
+const res = await fetch(`https://ip-api.com/json/${ip}`);
+const data = await res.json();
+
+add("Country: " + data.country);
+add("Region: " + data.regionName);
+add("City: " + data.city);
+add("ISP: " + data.isp);
+add("Org: " + data.org);
+add("Status: REAL DATA LOADED");
+} catch (e) {
+add("ERROR: IP lookup failed");
+}
+}
+
+/* ---------------- REAL DNS ---------------- */
+
+async function dns(domain){
+add("DNS lookup: " + domain);
+
+try {
+const res = await fetch(`https://dns.google/resolve?name=${domain}`);
+const data = await res.json();
+
+if(data.Answer){
+data.Answer.forEach(a => {
+add(`${a.type} → ${a.data}`);
+});
+} else {
+add("No DNS records found");
+}
+} catch (e) {
+add("DNS ERROR");
+}
+}
+
+/* ---------------- REAL HEADERS ---------------- */
+
+async function headers(url){
+add("Fetching headers: " + url);
+
+try {
+const res = await fetch(url, { method: "GET" });
+
+add("Status: " + res.status);
+add("Type: " + res.headers.get("content-type"));
+add("Server: " + (res.headers.get("server") || "unknown"));
+} catch (e) {
+add("Header fetch failed (CORS blocked on some sites)");
+}
+}
+
+/* ---------------- WHOIS (REAL VIA RDAP) ---------------- */
+
+async function whois(domain){
+add("WHOIS lookup: " + domain);
+
+try {
+const res = await fetch(`https://rdap.org/domain/${domain}`);
+const data = await res.json();
+
+add("Domain: " + data.ldhName);
+add("Status: " + (data.status?.join(", ") || "unknown"));
+add("Registrar: " + (data.entities?.[0]?.handle || "unknown"));
+} catch (e) {
+add("WHOIS failed");
+}
+}
+
+/* ---------------- COMMAND ENGINE ---------------- */
+
+function handleCommand(input){
+const args = input.split(" ");
+const base = args[0];
+
+add(".WERP> " + input);
+
+history.push(input);
+historyIndex = history.length;
+
+switch(base){
+
+case "help":
+add("whois, dns, ip, headers, clear");
+break;
+
+case "clear":
+output.innerHTML = "";
+break;
+
+case "ip":
+ipinfo(args[1]);
+break;
+
+case "dns":
+dns(args[1]);
+break;
+
+case "headers":
+headers(args[1]);
+break;
+
+case "whois":
+whois(args[1]);
+break;
+
+default:
+add("Unknown command");
+}
+}
+
+/* ---------------- INPUT ---------------- */
+
+cmd.addEventListener("keydown", (e) => {
+if(e.key === "Enter"){
+handleCommand(cmd.value.trim());
+cmd.value = "";
+}
+
+if(e.key === "ArrowUp"){
+if(history.length){
+historyIndex = Math.max(0, historyIndex - 1);
+cmd.value = history[historyIndex];
+}
+}
+
+if(e.key === "ArrowDown"){
+if(history.length){
+historyIndex = Math.min(history.length - 1, historyIndex + 1);
+cmd.value = history[historyIndex] || "";
+}
+}
+});
+</script>
+</body>
+</html>
